@@ -1,5 +1,5 @@
 "use client";
-
+import { markActive } from "@/lib/notifications";
 import { useState } from "react";
 
 export default function CodingAssistant() {
@@ -46,6 +46,7 @@ export default function CodingAssistant() {
 
 
       setResult(data.result);
+markActive();
 
 
     }catch(error){

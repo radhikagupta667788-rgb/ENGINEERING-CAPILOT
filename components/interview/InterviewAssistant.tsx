@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { markActive } from "@/lib/notifications";
 
 type InterviewFeedback = {
   score: number;
@@ -101,6 +102,7 @@ export default function InterviewAssistant() {
       }
 
       setFeedback(data.feedback);
+      markActive();
     } catch (error) {
       setError(
         error instanceof Error

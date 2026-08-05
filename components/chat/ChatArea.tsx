@@ -3,6 +3,7 @@
 import { useState } from "react";
 import ChatInput from "./ChatInput";
 import MessageBubble from "./MessageBubble";
+import { markActive } from "@/lib/notifications";
 
 export type Message = {
   text: string;
@@ -48,6 +49,7 @@ export default function ChatArea({
       if (!response.ok) {
         throw new Error(data.error || "AI response failed.");
       }
+markActive();
 
       onMessagesChange([
         ...updatedMessages,

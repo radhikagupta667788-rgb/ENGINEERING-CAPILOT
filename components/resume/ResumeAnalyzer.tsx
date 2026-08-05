@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { markActive } from "@/lib/notifications";
 
 export default function ResumeAnalyzer() {
   const [resume, setResume] = useState<File | null>(null);
@@ -32,6 +33,7 @@ export default function ResumeAnalyzer() {
       }
 
       setResult(data.result);
+markActive();
     } catch (error) {
       const errorMessage =
         error instanceof Error
