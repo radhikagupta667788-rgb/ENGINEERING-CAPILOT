@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { markActive } from "@/lib/notifications";
 
 export default function SmartLearning() {
   const [pdf, setPdf] = useState<File | null>(null);
@@ -37,6 +38,7 @@ export default function SmartLearning() {
       }
 
       setResult(data.result);
+      markActive();
 
     } catch (error) {
       setResult(

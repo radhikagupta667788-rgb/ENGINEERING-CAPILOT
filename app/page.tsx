@@ -1,8 +1,10 @@
+import ReminderBanner from "@/components/notifications/ReminderBanner";
 import FeatureCard from "@/components/FeatureCard";
 import StatsCard from "@/components/dashboard/StatsCard";
 import QuickActions from "@/components/dashboard/QuickActions";
 import RecentActivity from "@/components/dashboard/RecentActivity";
 import StudyProgress from "@/components/dashboard/StudyProgress";
+import NotificationSettings from "@/components/notifications/NotificationSettings";
 
 export default function Home() {
   return (
@@ -13,9 +15,10 @@ export default function Home() {
         </p>
 
         <h1 className="mt-3 text-4xl font-bold">
-          👋 Welcome to AI Engineering Copilot
+          👋 Welcome to AI Engineering Copilot 
+          
         </h1>
-
+<ReminderBanner />
         <p className="theme-muted mt-3 max-w-2xl">
           Learn faster, improve your coding, prepare for placements and track
           your progress from one dashboard.
@@ -86,6 +89,7 @@ export default function Home() {
       <section className="mt-8">
         <RecentActivity />
       </section>
+      <NotificationSettings />
 
       <section className="mt-10">
         <div className="mb-5">

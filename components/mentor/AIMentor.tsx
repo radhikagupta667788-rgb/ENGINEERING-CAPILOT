@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { markActive } from "@/lib/notifications";
 
 
 export default function AIMentor() {
@@ -53,8 +54,9 @@ export default function AIMentor() {
 
 
       setAnswer(
-        data.result || data.error
-      );
+  data.result || data.error
+);
+if (data.result) markActive();
 
 
     } catch (error) {
