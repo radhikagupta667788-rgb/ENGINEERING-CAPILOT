@@ -1,139 +1,389 @@
-import { GoogleGenAI } from "@google/genai";
+import { NextResponse } from "next/server";
+import Groq from "groq-sdk";
+import { createServerSupabase } from "@/lib/supabase-server";
 
-type InterviewFeedback = {
-  score: number;
-  feedback: string;
-  strongPoints: string[];
-  missingPoints: string[];
-  betterAnswer: string;
-  nextQuestion: string;
+export const runtime = "nodejs";
+
+type AIInterviewResult = {
+  score?: number;
+  feedback?: string;
+  nextQuestion?: string;
 };
-
-function cleanJson(text: string) {
-  return text
-    .replace(/```json/gi, "")
-    .replace(/```/g, "")
-    .trim();
-}
 
 export async function POST(request: Request) {
   try {
-    const { role, interviewType, question, answer } =
-      await request.json();
+    // =========================
+    // AUTH
+    // =========================
 
-    if (!role || !interviewType) {
-      return Response.json(
-        { error: "Role aur interview type required hai." },
-        { status: 400 }
+    const authHeader =
+      request.headers.get("authorization");
+
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unauthorized",
+        },
+        {
+          status: 401,
+        }
       );
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const token =
+      authHeader.replace("Bearer ", "");
 
-    if (!apiKey) {
-      return Response.json(
-        { error: "Gemini API key missing hai." },
-        { status: 500 }
+    const supabase =
+      createServerSupabase(token);
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser(token);
+
+    if (userError || !user) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid user session",
+        },
+        {
+          status: 401,
+        }
       );
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    // =========================
+    // INPUT
+    // =========================
 
-    // New question generate karna
-    if (!answer) {
-      const prompt = `
-You are an expert interviewer.
+    const {
+      type,
+      question,
+      answer,
+    } = await request.json();
 
-Candidate role: ${role}
-Interview type: ${interviewType}
-
-Ask exactly one suitable interview question.
-Return only the question without numbering, headings, markdown, or extra explanation.
-`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-lite",
-        contents: prompt,
-      });
-
-      return Response.json({
-        question:
-          response.text?.trim() ||
-          "Tell me about yourself and your technical skills.",
-      });
+    if (
+      !type ||
+      !question ||
+      !answer ||
+      !answer.trim()
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Interview data missing",
+        },
+        {
+          status: 400,
+        }
+      );
     }
 
-    // Candidate answer evaluate karna
-    const feedbackPrompt = `
-You are an expert technical and HR interviewer.
+    // =========================
+    // GROQ KEY
+    // =========================
 
-Candidate role: ${role}
-Interview type: ${interviewType}
-Question: ${question}
-Candidate answer: ${answer}
+    if (!process.env.GROQ_API_KEY) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "GROQ_API_KEY missing",
+        },
+        {
+          status: 500,
+        }
+      );
+    }
 
-Evaluate the candidate honestly.
+    const groq =
+      new Groq({
+        apiKey:
+          process.env.GROQ_API_KEY,
+      });
 
-Return ONLY valid JSON in exactly this structure:
+    // =========================
+    // AI EVALUATION
+    // =========================
+
+    const response =
+      await groq.chat.completions.create({
+        model:
+          "llama-3.1-8b-instant",
+
+        temperature: 0.3,
+
+        messages: [
+          {
+            role: "system",
+
+            content: `
+You are the AI Interviewer inside AI Engineering Copilot.
+
+The candidate is preparing for engineering placements.
+
+Interview type:
+${type}
+
+Evaluate the candidate's answer and generate the next relevant interview question.
+
+Return ONLY valid JSON in exactly this format:
 
 {
-  "score": 7,
-  "feedback": "Short overall feedback",
-  "strongPoints": [
-    "Strong point 1",
-    "Strong point 2"
-  ],
-  "missingPoints": [
-    "Missing point 1",
-    "Missing point 2"
-  ],
-  "betterAnswer": "A complete interview-ready improved answer",
-  "nextQuestion": "One suitable next interview question"
+  "score": 8,
+  "feedback": "Clear structured feedback here",
+  "nextQuestion": "Next interview question here"
 }
 
+Feedback must include:
+
+What was good:
+- point 1
+- point 2
+
+What can improve:
+- point 1
+- point 2
+
+Better answer:
+Give a concise interview-ready improved answer.
+
 Rules:
-- score must be a number from 0 to 10
-- do not include markdown
-- do not include code fences
-- do not add text outside JSON
-`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
-      contents: feedbackPrompt,
-    });
+- Score must be from 0 to 10.
+- Next question must match the interview type.
+- For Technical interviews, ask engineering/coding/CS questions.
+- For HR interviews, ask communication, behavioral or placement questions.
+- Do not repeat the current question.
+- Be practical.
+- Be student-friendly.
+- Be accurate.
+- Do not return markdown code fences.
+- Return valid JSON only.
+`,
+          },
 
-    const rawText = response.text || "";
-    const cleanedText = cleanJson(rawText);
+          {
+            role: "user",
 
-    let feedback: InterviewFeedback;
+            content: `
+Current Question:
+${question}
+
+Candidate Answer:
+${answer}
+`,
+          },
+        ],
+      });
+
+    const raw =
+      response.choices[0]
+        ?.message?.content || "";
+
+    const cleaned =
+      raw
+        .replace(/```json/gi, "")
+        .replace(/```/g, "")
+        .trim();
+
+    let parsed:
+      AIInterviewResult;
 
     try {
-      feedback = JSON.parse(cleanedText) as InterviewFeedback;
+      parsed =
+        JSON.parse(cleaned);
     } catch {
-      console.error("Invalid interview JSON:", rawText);
+      console.log(
+        "INVALID INTERVIEW JSON:",
+        raw
+      );
 
-      return Response.json(
+      return NextResponse.json(
         {
+          success: false,
           error:
-            "AI feedback format read nahi ho paya. Dobara submit karo.",
+            "AI returned invalid interview feedback.",
         },
-        { status: 500 }
+        {
+          status: 500,
+        }
       );
     }
 
-    return Response.json({ feedback });
-  } catch (error) {
-    console.error("Interview API error:", error);
+    const score =
+      Math.max(
+        0,
+        Math.min(
+          10,
+          Number(parsed.score) || 0
+        )
+      );
 
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Unknown interview error";
+    const feedback =
+      typeof parsed.feedback ===
+      "string"
+        ? parsed.feedback
+        : "No feedback generated.";
 
-    return Response.json(
-      { error: message },
-      { status: 500 }
+    const nextQuestion =
+      typeof parsed.nextQuestion ===
+      "string"
+        ? parsed.nextQuestion
+        : type === "Technical"
+        ? "Explain the difference between an array and a linked list."
+        : "Why should we hire you?";
+
+    // =========================
+    // USER PROGRESS
+    // =========================
+
+    const userId =
+      user.id;
+
+    const today =
+      new Date()
+        .toISOString()
+        .split("T")[0];
+
+    const {
+      data: progress,
+      error: progressError,
+    } = await supabase
+      .from("progress")
+      .select("*")
+      .eq("userid", userId)
+      .maybeSingle();
+
+    if (progressError) {
+      console.log(
+        "INTERVIEW PROGRESS READ ERROR:",
+        progressError
+      );
+    }
+
+    if (progress) {
+      let newStreak =
+        progress.streak || 1;
+
+      const lastDate =
+        progress.last_active_date;
+
+      if (lastDate !== today) {
+        if (lastDate) {
+          const yesterday =
+            new Date();
+
+          yesterday.setDate(
+            yesterday.getDate() - 1
+          );
+
+          const yesterdayDate =
+            yesterday
+              .toISOString()
+              .split("T")[0];
+
+          if (
+            lastDate === yesterdayDate
+          ) {
+            newStreak =
+              (progress.streak || 0) + 1;
+          } else {
+            newStreak = 1;
+          }
+        } else {
+          newStreak = 1;
+        }
+      }
+
+      const {
+        error: updateError,
+      } = await supabase
+        .from("progress")
+        .update({
+          streak: newStreak,
+          last_active_date: today,
+        })
+        .eq("userid", userId);
+
+      if (updateError) {
+        console.log(
+          "INTERVIEW PROGRESS UPDATE ERROR:",
+          updateError
+        );
+      }
+    } else {
+      const {
+        error: insertError,
+      } = await supabase
+        .from("progress")
+        .insert({
+          userid: userId,
+          coding_count: 0,
+          ai_chats: 0,
+          resume_score: 0,
+          streak: 1,
+          last_active_date: today,
+        });
+
+      if (insertError) {
+        console.log(
+          "INTERVIEW PROGRESS INSERT ERROR:",
+          insertError
+        );
+      }
+    }
+
+    // =========================
+    // ACTIVITY
+    // =========================
+
+    const {
+      error: activityError,
+    } = await supabase
+      .from("activities")
+      .insert({
+        user_id: userId,
+        action:
+          `Completed ${type} Interview - ${score}/10`,
+      });
+
+    if (activityError) {
+      console.log(
+        "INTERVIEW ACTIVITY ERROR:",
+        activityError
+      );
+    }
+
+    // =========================
+    // RESPONSE
+    // =========================
+
+    return NextResponse.json({
+      success: true,
+      score,
+      feedback,
+      nextQuestion,
+    });
+  } catch (error: unknown) {
+    console.log(
+      "INTERVIEW API ERROR:",
+      error
+    );
+
+    return NextResponse.json(
+      {
+        success: false,
+
+        error:
+          error instanceof Error
+            ? error.message
+            : "Interview evaluation failed",
+      },
+      {
+        status: 500,
+      }
     );
   }
 }

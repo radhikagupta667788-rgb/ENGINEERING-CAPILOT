@@ -1,38 +1,45 @@
 import "./globals.css";
+
 import Navbar from "@/components/Navbar";
 import Sidebar from "@/components/Sidebar";
 
+export const metadata = {
+  title: "AI Engineering Copilot",
+  description: "AI Operating System for Engineering Students",
+};
 
 export default function RootLayout({
- children,
-}:{
- children: React.ReactNode;
-}){
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="en">
+      <body className="bg-slate-50 text-slate-900">
 
-return(
+        <div className="flex min-h-screen">
 
-<html lang="en">
+          {/* LEFT SIDEBAR */}
+          <Sidebar />
 
-<body>
+          {/* RIGHT SIDE */}
+          <div className="flex min-h-screen flex-1 flex-col">
 
-<Navbar />
+            {/* TOP NAVBAR */}
+            <Navbar />
 
-<div className="flex">
+            {/* PAGE CONTENT */}
+            <main className="flex-1 overflow-x-hidden bg-slate-50 p-6 md:p-8">
+              <div className="mx-auto w-full max-w-7xl">
+                {children}
+              </div>
+            </main>
 
-<Sidebar />
+          </div>
 
-<main className="flex-1 p-6">
+        </div>
 
-{children}
-
-</main>
-
-</div>
-
-</body>
-
-</html>
-
-);
-
+      </body>
+    </html>
+  );
 }

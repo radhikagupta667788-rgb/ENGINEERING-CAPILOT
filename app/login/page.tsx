@@ -1,77 +1,109 @@
 "use client";
 
 import { useState } from "react";
+import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 
-export default function LoginPage() {
 
-  const router = useRouter();
+export default function LoginPage(){
 
-  const [email,setEmail] = useState("");
-  const [password,setPassword] = useState("");
+const [email,setEmail]=useState("");
+const [password,setPassword]=useState("");
 
-  const login = () => {
-
-    const user = JSON.parse(
-      localStorage.getItem("user") || "null"
-    );
-
-    if(
-      user &&
-      user.email === email &&
-      user.password === password
-    ){
-      localStorage.setItem(
-        "loggedIn",
-        "true"
-      );
-
-      router.push("/");
-    }
-    else{
-      alert("Invalid email or password");
-    }
-
-  };
+const router=useRouter();
 
 
-  return (
-    <main className="min-h-screen flex items-center justify-center bg-[var(--background)]">
 
-      <div className="theme-card w-96 rounded-2xl p-8 shadow-lg">
-
-        <h1 className="text-3xl font-bold">
-          🔐 Login
-        </h1>
+const login=async()=>{
 
 
-        <input
-          placeholder="Email"
-          value={email}
-          onChange={(e)=>setEmail(e.target.value)}
-          className="theme-card mt-5 w-full rounded-xl border p-3"
-        />
+const {error}=await supabase.auth.signInWithPassword({
+
+email,
+password
+
+});
 
 
-        <input
-          placeholder="Password"
-          type="password"
-          value={password}
-          onChange={(e)=>setPassword(e.target.value)}
-          className="theme-card mt-4 w-full rounded-xl border p-3"
-        />
+if(error){
+
+alert(error.message);
+return;
+
+}
 
 
-        <button
-          onClick={login}
-          className="theme-primary mt-5 w-full rounded-xl p-3"
-        >
-          Login
-        </button>
+router.push("/");
 
 
-      </div>
+};
 
-    </main>
-  );
+
+
+return(
+
+<div className="flex min-h-screen items-center justify-center">
+
+
+<div className="w-full max-w-md rounded-3xl border p-8">
+
+
+<h1 className="text-3xl font-bold">
+Login
+</h1>
+
+
+
+<input
+
+className="mt-6 w-full rounded-xl border p-3"
+
+placeholder="Email"
+
+type="email"
+
+value={email}
+
+onChange={(e)=>setEmail(e.target.value)}
+
+/>
+
+
+
+<input
+
+className="mt-4 w-full rounded-xl border p-3"
+
+placeholder="Password"
+
+type="password"
+
+value={password}
+
+onChange={(e)=>setPassword(e.target.value)}
+
+/>
+
+
+
+<button
+
+onClick={login}
+
+className="mt-5 w-full rounded-xl bg-blue-600 p-3 text-white"
+
+>
+
+Login
+
+</button>
+
+
+
+</div>
+
+</div>
+
+)
+
 }

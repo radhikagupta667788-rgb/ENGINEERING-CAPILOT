@@ -1,79 +1,284 @@
-import { GoogleGenAI } from "@google/genai";
+import { NextResponse } from "next/server";
+import Groq from "groq-sdk";
+import { createServerSupabase } from "@/lib/supabase-server";
+
+export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    const {
-      code,
-      language,
-      mode,
-    } = await request.json();
+    // ================= AUTH =================
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const authHeader =
+      request.headers.get("authorization");
 
-    if (!apiKey) {
-      return Response.json(
-        { error: "Gemini API key missing hai." },
-        { status: 500 }
+    if (
+      !authHeader ||
+      !authHeader.startsWith("Bearer ")
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unauthorized",
+        },
+        {
+          status: 401,
+        }
       );
     }
 
-    const ai = new GoogleGenAI({
-      apiKey,
+    const token =
+      authHeader.replace("Bearer ", "");
+
+    const supabase =
+      createServerSupabase(token);
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser(token);
+
+    if (userError || !user) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid user session",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    const userId = user.id;
+
+    // ================= INPUT =================
+
+    const { code, mode } =
+      await request.json();
+
+    if (!code || !code.trim()) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Code missing",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const selectedMode =
+      mode || "Review";
+
+    // ================= MODES =================
+
+    const modeInstructions: Record<
+      string,
+      string
+    > = {
+      Review: `
+Review this code like a senior software engineer.
+
+Give:
+1. Code quality review
+2. Bugs or risky areas
+3. Best practices
+4. Readability improvements
+5. Improved code if needed
+      `,
+
+      Debug: `
+Debug the provided code.
+
+Give:
+1. Exact errors or bugs
+2. Why the errors happen
+3. Step-by-step fix
+4. Corrected code
+5. How to avoid the same mistake
+      `,
+
+      Explain: `
+Explain this code to a student.
+
+Give:
+1. What the code does
+2. Important line-by-line explanation
+3. Functions/classes/logic
+4. Time complexity if relevant
+5. Simple summary
+      `,
+
+      Optimize: `
+Optimize the provided code.
+
+Give:
+1. Current inefficiencies
+2. Better approach
+3. Optimized code
+4. Time and space complexity
+5. Why the optimized version is better
+      `,
+    };
+
+    const instruction =
+      modeInstructions[selectedMode] ||
+      modeInstructions.Review;
+
+    // ================= AI =================
+
+    const groq = new Groq({
+      apiKey:
+        process.env.GROQ_API_KEY,
     });
 
-    const prompt = `
-You are an expert coding assistant.
+    const response =
+      await groq.chat.completions.create({
+        model:
+          "llama-3.1-8b-instant",
 
-Language:
-${language}
+        messages: [
+          {
+            role: "system",
 
-Mode:
-${mode}
+            content: `
+You are the Code Lab AI inside an AI Engineering Copilot.
 
-Code:
+You are an expert software engineer and coding mentor.
+
+Always:
+- Be accurate
+- Explain clearly
+- Preserve the programming language
+- Use readable formatting
+- Do not invent bugs
+- Provide corrected code when useful
+
+Current operation:
+
+${instruction}
+            `,
+          },
+
+          {
+            role: "user",
+
+            content: `
+Operation: ${selectedMode}
+
+Analyze this code:
+
+\`\`\`
 ${code}
+\`\`\`
+            `,
+          },
+        ],
 
-Give response according to mode.
+        temperature: 0.2,
+      });
 
-If Debug:
-- Find errors
-- Explain issue
-- Give fixed code
+    const answer =
+      response.choices[0]
+        ?.message?.content ||
+      "No analysis generated.";
 
-If Explain:
-- Explain line by line
-- Give example
+    // ================= PROGRESS =================
 
-If Optimize:
-- Improve code
-- Give time complexity
-- Give space complexity
+    const {
+      data: progress,
+      error: progressError,
+    } = await supabase
+      .from("progress")
+      .select("*")
+      .eq("userid", userId)
+      .maybeSingle();
 
-If Test Cases:
-- Generate input/output test cases
+    if (progressError) {
+      console.log(
+        "Progress read error:",
+        progressError
+      );
+    }
 
-Keep answer clear for engineering students.
-`;
+    if (progress) {
+      const {
+        error: updateError,
+      } = await supabase
+        .from("progress")
+        .update({
+          coding_count:
+            (progress.coding_count || 0) + 1,
+        })
+        .eq("userid", userId);
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
-      contents: prompt,
+      if (updateError) {
+        console.log(
+          "Progress update error:",
+          updateError
+        );
+      }
+    } else {
+      const {
+        error: insertProgressError,
+      } = await supabase
+        .from("progress")
+        .insert({
+          userid: userId,
+          coding_count: 1,
+          streak: 0,
+          ai_chats: 0,
+          resume_score: 0,
+        });
+
+      if (insertProgressError) {
+        console.log(
+          "Progress insert error:",
+          insertProgressError
+        );
+      }
+    }
+
+    // ================= ACTIVITY =================
+
+    const {
+      error: activityError,
+    } = await supabase
+      .from("activities")
+      .insert({
+        user_id: userId,
+        action:
+          `Used Code Lab - ${selectedMode}`,
+      });
+
+    if (activityError) {
+      console.log(
+        "Activity insert error:",
+        activityError
+      );
+    }
+
+    // ================= RESPONSE =================
+
+    return NextResponse.json({
+      success: true,
+      mode: selectedMode,
+      answer,
     });
+  } catch (error: unknown) {
+    console.log(
+      "Coding API error:",
+      error
+    );
 
-    return Response.json({
-      result:
-        response.text ||
-        "No response generated",
-    });
-
-  } catch (error) {
-
-    return Response.json(
+    return NextResponse.json(
       {
+        success: false,
         error:
           error instanceof Error
             ? error.message
-            : "Something went wrong",
+            : "Unable to analyze code",
       },
       {
         status: 500,
